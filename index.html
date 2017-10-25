@@ -1,0 +1,420 @@
+<!DOCTYPE html>
+<html lang="en">
+	<head>
+		<title>three.js webgl - ShadowMapViewer example </title>
+		<meta charset="utf-8">
+		<meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0">
+		<style>
+			body {
+				font-family: Monospace;
+				background-color: #000;
+				color: #fff;
+				margin: 0px;
+				overflow: hidden;
+			}
+			#info {
+				position: absolute;
+				top: 10px;
+				width: 100%;
+				text-align: center;
+				z-index: 100;
+				display:block;
+			}
+			#info a { color: #f00; font-weight: bold; text-decoration: underline; cursor: pointer }
+		</style>
+	</head>
+	<body>
+		<div id="info">
+<!-- 		<a href="http://threejs.org" target="_blank" rel="noopener">three.js</a> - ShadowMapViewer example by <a href="https://github.com/arya-s">arya-s</a> -->
+		</div>
+
+		<script src="three.js"></script>
+		<script src="OrbitControls.js"></script>
+		<script src="UnpackDepthRGBAShader.js"></script>
+		<script src="ShadowMapViewer.js"></script>
+		<script src="Detector.js"></script>
+		<script src="stats.min.js"></script>
+
+		<script>
+
+			if ( ! Detector.webgl ) Detector.addGetWebGLMessage();
+
+			var raycaster, mouse;
+			var newPipeUUIDS = {};
+			var pointUUIDS = {};
+			var activeUUIDS = {};
+
+			var camera, scene, renderer, clock, stats;
+			var dirLight, spotLight;
+			var torusKnot, cube;
+			var dirLightShadowMapViewer, spotLightShadowMapViewer;
+
+			init();
+			animate();
+
+			function createSphere(center, radius) {
+				let geometry = new THREE.SphereGeometry( radius, 32, 32 );
+				let material = new THREE.MeshBasicMaterial( {color: 0xffff00} );
+				let sphere = new THREE.Mesh( geometry, material );
+				sphere.position.x = center.x;
+				sphere.position.y = center.y;
+				sphere.position.z = center.z;								
+				return sphere;
+			}
+
+			function createCube(p1, p2, material) {
+				var geometry = new THREE.BoxGeometry( 
+												Math.abs(p1.x - p2.x),
+												Math.abs(p1.y - p2.y),
+												Math.abs(p1.z - p2.z));
+				var cube = new THREE.Mesh( geometry, material);
+				cube.position.x = (p1.x + p2.x) / 2;
+				cube.position.y = (p1.y + p2.y) / 2;
+				cube.position.z = (p1.z + p2.z) / 2;
+				cube.castShadow = true;
+				cube.receiveShadow = true;
+				return cube;
+			}
+
+  		function createPipe( p1, p2, radius = 0.05, color = 0xff00ff) {
+		    var direction = new THREE.Vector3().subVectors( p2, p1 );
+				var geometry = new THREE.CylinderGeometry(radius, radius, direction.length(), 4, 4);
+  			let material = new THREE.MeshBasicMaterial( {color: 0xff00ff} );
+				var mesh = new THREE.Mesh(geometry, material);
+				var axis = new THREE.Vector3(0, 1, 0);
+				mesh.quaternion.setFromUnitVectors(axis, direction.clone().normalize());
+				mesh.position.x = (p1.x + p2.x) / 2;
+				mesh.position.y = (p1.y + p2.y) / 2;
+				mesh.position.z = (p1.z + p2.z) / 2;
+				return mesh;
+			}
+
+
+			function init() {
+
+				initScene();
+				initShadowMapViewers();
+				initMisc();
+
+				document.body.appendChild( renderer.domElement );
+				window.addEventListener( 'resize', onWindowResize, false );
+				window.addEventListener( 'mousedown', onMouseDown, false );
+				// window.requestAnimationFrame(render);
+			}
+
+			function onMouseMove( event ) {
+
+				// calculate mouse position in normalized device coordinates
+				// (-1 to +1) for both components
+
+				mouse.x = ( event.clientX / window.innerWidth ) * 2 - 1;
+				mouse.y = - ( event.clientY / window.innerHeight ) * 2 + 1;
+
+			}
+
+			function onMouseDown( event ) {
+
+				// calculate mouse position in normalized device coordinates
+				// (-1 to +1) for both components
+				mouse.x = ( event.clientX / window.innerWidth ) * 2 - 1;
+				mouse.y = - ( event.clientY / window.innerHeight ) * 2 + 1;
+
+				// update the picking ray with the camera and mouse position
+				raycaster.setFromCamera( mouse, camera );
+
+				// calculate objects intersecting the picking ray
+				var intersects = raycaster.intersectObjects( scene.children );
+
+				for ( var i = 0; i < intersects.length; i++ ) {
+					if ( intersects[ i ].object.uuid in pointUUIDS ) {
+						if ( intersects[ i ].object.uuid in activeUUIDS ) {
+							/* delete from active uuids and restore color */
+							intersects[ i ].object.material.color.set( 0xffff00 );
+							delete activeUUIDS[intersects[ i ].object.uuid];
+						} else {
+							intersects[ i ].object.material.color.set( 0xff0000 );
+							activeUUIDS[ intersects[ i ].object.uuid ] = intersects[ i ].object;
+						}
+					}
+					if ( intersects[ i ].object.uuid in newPipeUUIDS ) {
+						/* delete from newPipeUUIDS and detele object */
+						delete newPipeUUIDS[intersects[ i ].object.uuid];
+						scene.remove(intersects[ i ].object);
+					}
+				}
+
+				if ( Object.keys(activeUUIDS).length == 2 ) {
+					var sKey = Object.keys(activeUUIDS)[0];
+					var eKey = Object.keys(activeUUIDS)[1];
+					activeUUIDS[sKey].material.color.set( 0xffff00 );
+					activeUUIDS[eKey].material.color.set( 0xffff00 );
+					var s = activeUUIDS[sKey].position;
+					var e = activeUUIDS[eKey].position;
+					delete activeUUIDS[sKey];
+					delete activeUUIDS[eKey];
+
+					var newPipe = createPipe(s,e, 0.05, 0x00ff00);
+					newPipeUUIDS[newPipe.uuid] = newPipe;
+					scene.add(newPipe);
+				}
+
+			}
+
+			function initScene() {
+
+				// raycaster
+				raycaster = new THREE.Raycaster();
+				mouse = new THREE.Vector2();
+
+
+
+				var w = window.innerWidth;
+				var h = window.innerHeight;
+				camera = new THREE.PerspectiveCamera( 45, w / h, 1, 1000 );
+				// camera = new THREE.OrthographicCamera( w / - 2, w / 2, h / 2, h / - 2, 1, 100 );
+				// camera.zoom = 3;
+				// camera.updateProjectionMatrix();
+				camera.position.set( 11, 20, 20 );
+
+				scene = new THREE.Scene();
+
+				// Lights
+
+				scene.add( new THREE.AmbientLight( 0x404040 ) );
+
+				spotLight = new THREE.SpotLight( 0xffffff );
+				spotLight.name = 'Spot Light';
+				spotLight.angle = Math.PI / 5;
+				spotLight.penumbra = 0.3;
+				spotLight.position.set( 10, 10, 5 );
+				spotLight.castShadow = true;
+				spotLight.shadow.camera.near = 8;
+				spotLight.shadow.camera.far = 30;
+				spotLight.shadow.mapSize.width = 1024;
+				spotLight.shadow.mapSize.height = 1024;
+				// scene.add( spotLight );
+
+				// scene.add( new THREE.CameraHelper( spotLight.shadow.camera ) );
+
+				dirLight = new THREE.DirectionalLight( 0xffffff, 1 );
+				dirLight.name = 'Dir. Light';
+				dirLight.position.set( 0, 10, 0 );
+				dirLight.castShadow = true;
+				dirLight.shadow.camera.near = 1;
+				dirLight.shadow.camera.far = 10;
+				dirLight.shadow.camera.right = 15;
+				dirLight.shadow.camera.left = - 15;
+				dirLight.shadow.camera.top	= 15;
+				dirLight.shadow.camera.bottom = - 15;
+				dirLight.shadow.mapSize.width = 1024;
+				dirLight.shadow.mapSize.height = 1024;
+				scene.add( dirLight );
+
+				// scene.add( new THREE.CameraHelper( dirLight.shadow.camera ) );
+
+				// Geometry
+				var geometry = new THREE.TorusKnotGeometry( 25, 8, 75, 20 );
+				var material = new THREE.MeshPhongMaterial( {
+					color: 0x00f0f0,
+					shininess: 150,
+					specular: 0x222222,
+					opacity: 0.7,
+					transparent: true,
+				} );
+
+				var base   = 3;
+				var height = 9;
+				var xwidth = 9;
+				var zwidth = 9;
+
+				var p1 = new THREE.Vector3( - xwidth/2, base,           zwidth/2);
+				var p2 = new THREE.Vector3(   xwidth/2, base,           zwidth/2);
+				var p3 = new THREE.Vector3(   xwidth/2, base,          -zwidth/2);
+				var p4 = new THREE.Vector3( - xwidth/2, base,          -zwidth/2);
+
+				var p5 = new THREE.Vector3( - xwidth/2, base + height,           zwidth/2);
+				var p6 = new THREE.Vector3(   xwidth/2, base + height,           zwidth/2);
+				var p7 = new THREE.Vector3(   xwidth/2, base + height,          -zwidth/2);
+				var p8 = new THREE.Vector3( - xwidth/2, base + height,          -zwidth/2);
+
+				var pipeRadius = 0.05;
+				var pipe1 = createPipe(p1, p2, pipeRadius);
+				var pipe2 = createPipe(p2, p3, pipeRadius);
+				var pipe3 = createPipe(p3, p4, pipeRadius);
+				var pipe4 = createPipe(p4, p1, pipeRadius);
+
+				var pipe5 = createPipe(p5, p6, pipeRadius);
+				var pipe6 = createPipe(p6, p7, pipeRadius);
+				var pipe7 = createPipe(p7, p8, pipeRadius);
+				var pipe8 = createPipe(p8, p5, pipeRadius);
+
+				var pipe15 = createPipe(p1, p5, pipeRadius);
+				var pipe26 = createPipe(p2, p6, pipeRadius);
+				var pipe37 = createPipe(p3, p7, pipeRadius);
+				var pipe48 = createPipe(p4, p8, pipeRadius);
+
+				// scene.add( pipe1 );
+				// scene.add( pipe2 );
+				// scene.add( pipe3 );
+				// scene.add( pipe4 );
+
+				// scene.add( pipe5 );
+				// scene.add( pipe6 );
+				// scene.add( pipe7 );
+				// scene.add( pipe8 );				
+
+				// scene.add( pipe15 );
+				// scene.add( pipe26 );
+				// scene.add( pipe37 );
+				// scene.add( pipe48 );				
+
+				// var p3 = new THREE.Vector3( - xwidth/2, base,           zwidth/2);
+				// var p4 = new THREE.Vector3( - xwidth/2, base,           zwidth/2);
+				var start = new THREE.Vector3( - xwidth/2, base,           zwidth/2);
+	 	 	  var end   = new THREE.Vector3(   xwidth/2, base + height, -zwidth/2);
+				cube = createCube(start,end, material);
+				// var geometry = new THREE.BoxGeometry( 5, 5, 5 );
+				// cube = new THREE.Mesh( geometry, material );
+				// cube.position.set( 0, 5, 0 );
+				// cube.castShadow = true;
+				// cube.receiveShadow = true;
+				scene.add( cube );
+
+				var sphereRaidus = 0.2;
+				var p1Sphere = createSphere(p1, sphereRaidus);
+				var p2Sphere = createSphere(p2, sphereRaidus);
+				var p3Sphere = createSphere(p3, sphereRaidus);
+				var p4Sphere = createSphere(p4, sphereRaidus);												
+				var p5Sphere = createSphere(p5, sphereRaidus);
+				var p6Sphere = createSphere(p6, sphereRaidus);
+				var p7Sphere = createSphere(p7, sphereRaidus);
+				var p8Sphere = createSphere(p8, sphereRaidus);												
+
+				pointUUIDS[p1Sphere.uuid] = p1Sphere;
+				pointUUIDS[p2Sphere.uuid] = p2Sphere;
+				pointUUIDS[p3Sphere.uuid] = p3Sphere;
+				pointUUIDS[p4Sphere.uuid] = p4Sphere;
+				pointUUIDS[p5Sphere.uuid] = p5Sphere;
+				pointUUIDS[p6Sphere.uuid] = p6Sphere;
+				pointUUIDS[p7Sphere.uuid] = p7Sphere;
+				pointUUIDS[p8Sphere.uuid] = p8Sphere;
+
+				scene.add( p1Sphere );
+				scene.add( p2Sphere );
+				scene.add( p3Sphere );
+				scene.add( p4Sphere );
+				scene.add( p5Sphere );
+				scene.add( p6Sphere );
+				scene.add( p7Sphere );
+				scene.add( p8Sphere );
+
+				// var startSphere = createSphere(start, sphereRaidus);
+				// scene.add( startSphere );
+				// var endSphere = createSphere(end, sphereRaidus);
+				// scene.add( endSphere );				
+				
+				var pipe = createPipe(start, end, 0.1);
+				scene.add( pipe );
+
+				var geometry = new THREE.BoxGeometry( 10, 0.15, 10 );
+				var material = new THREE.MeshPhongMaterial( {
+					color: 0xa0adaf,
+					shininess: 150,
+					specular: 0x111111
+				} );
+
+				var ground = new THREE.Mesh( geometry, material );
+				ground.scale.multiplyScalar( 3 );
+				ground.castShadow = false;
+				ground.receiveShadow = true;
+				scene.add( ground );
+
+			}
+
+			function initShadowMapViewers() {
+
+				dirLightShadowMapViewer = new THREE.ShadowMapViewer( dirLight );
+				dirLightShadowMapViewer.position.x = 10;
+				dirLightShadowMapViewer.position.y = 10;
+				dirLightShadowMapViewer.size.width = 256;
+				dirLightShadowMapViewer.size.height = 256;
+				dirLightShadowMapViewer.update(); //Required when setting position or size directly
+
+				spotLightShadowMapViewer = new THREE.ShadowMapViewer( spotLight );
+				spotLightShadowMapViewer.size.set( 256, 256 );
+				spotLightShadowMapViewer.position.set( 276, 10 );
+				// spotLightShadowMapViewer.update();	//NOT required because .set updates automatically
+
+			}
+
+			function initMisc() {
+
+				renderer = new THREE.WebGLRenderer( { antialias: true });
+				renderer.setPixelRatio( window.devicePixelRatio );
+				renderer.setSize( window.innerWidth, window.innerHeight );
+				renderer.shadowMap.enabled = true;
+				renderer.shadowMap.type = THREE.BasicShadowMap;
+
+
+				// Mouse control
+				var controls = new THREE.OrbitControls( camera, renderer.domElement );
+				controls.target.set( 0, 5, 0 );
+				controls.update();
+
+				clock = new THREE.Clock();
+
+				stats = new Stats();
+				document.body.appendChild( stats.dom );
+
+			}
+
+			function onWindowResize() {
+
+				camera.aspect = window.innerWidth / window.innerHeight;
+				camera.updateProjectionMatrix();
+
+				renderer.setSize( window.innerWidth, window.innerHeight );
+
+				dirLightShadowMapViewer.updateForWindowResize();
+				spotLightShadowMapViewer.updateForWindowResize();
+
+			}
+
+			function animate() {
+
+				requestAnimationFrame( animate );
+				render();
+
+				stats.update();
+
+			}
+
+			function renderScene() {
+
+				renderer.render( scene, camera );
+
+			}
+
+			function renderShadowMapViewers() {
+
+				// dirLightShadowMapViewer.render( renderer );
+				// spotLightShadowMapViewer.render( renderer );
+
+			}
+
+			function render() {
+
+				var delta = clock.getDelta();
+
+				renderScene();
+				renderShadowMapViewers();
+
+				// cube.rotation.x += 0.25 * delta;
+				// cube.rotation.y += 2 * delta;
+				// cube.rotation.z += 1 * delta;
+
+			}
+
+		</script>
+	</body>
+</html>
