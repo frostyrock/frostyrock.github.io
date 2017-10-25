@@ -157,7 +157,7 @@
 					delete activeUUIDS[sKey];
 					delete activeUUIDS[eKey];
 
-					var newPipe = createPipe(s,e, 0.05, 0x00ff00);
+					var newPipe = createPipe(s,e, 0.3, 0x00ff00);
 					newPipeUUIDS[newPipe.uuid] = newPipe;
 					scene.add(newPipe);
 				}
@@ -284,7 +284,7 @@
 				// cube.receiveShadow = true;
 				scene.add( cube );
 
-				var sphereRaidus = 0.2;
+				var sphereRaidus = 0.5;
 				var p1Sphere = createSphere(p1, sphereRaidus);
 				var p2Sphere = createSphere(p2, sphereRaidus);
 				var p3Sphere = createSphere(p3, sphereRaidus);
@@ -317,8 +317,8 @@
 				// var endSphere = createSphere(end, sphereRaidus);
 				// scene.add( endSphere );				
 				
-				var pipe = createPipe(start, end, 0.1);
-				scene.add( pipe );
+				// var pipe = createPipe(start, end, 0.1);
+				// scene.add( pipe );
 
 				var geometry = new THREE.BoxGeometry( 10, 0.15, 10 );
 				var material = new THREE.MeshPhongMaterial( {
