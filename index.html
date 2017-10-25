@@ -124,9 +124,10 @@
 
 				// calculate objects intersecting the picking ray
 				var intersects = raycaster.intersectObjects( scene.children );
-
+				var interacted = false;
 				for ( var i = 0; i < intersects.length; i++ ) {
 					if ( intersects[ i ].object.uuid in pointUUIDS ) {
+						interacted = true;
 						if ( intersects[ i ].object.uuid in activeUUIDS ) {
 							/* delete from active uuids and restore color */
 							intersects[ i ].object.material.color.set( 0xffff00 );
@@ -135,8 +136,11 @@
 							intersects[ i ].object.material.color.set( 0xff0000 );
 							activeUUIDS[ intersects[ i ].object.uuid ] = intersects[ i ].object;
 						}
-					}
-					if ( intersects[ i ].object.uuid in newPipeUUIDS ) {
+					} 
+				}
+				
+				for ( var i = 0; i < intersects.length; i++ ) {
+					if ( !interacted && intersects[ i ].object.uuid in newPipeUUIDS ) {
 						/* delete from newPipeUUIDS and detele object */
 						delete newPipeUUIDS[intersects[ i ].object.uuid];
 						scene.remove(intersects[ i ].object);
